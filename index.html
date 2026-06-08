@@ -886,13 +886,8 @@ function app() {
         return d <= ago7;
       }).length;
 
-      // Ocupación: duplex con contrato activo
-      const now = new Date();
-      const activeDuplexIds = new Set(
-        this.data.contracts
-          .filter(c => new Date(c.startDate) <= now && new Date(c.endDate) >= now)
-          .map(c => c.duplexId)
-      );
+      // Ocupación: duplex con al menos un contrato (activo o vencido)
+      const activeDuplexIds = new Set(this.data.contracts.map(c => c.duplexId));
       this.dash.totalDuplexes = this.data.duplexes.length;
       this.dash.occupiedDuplexes = activeDuplexIds.size;
       this.dash.occupancyRate = this.dash.totalDuplexes
@@ -1012,14 +1007,19 @@ function app() {
     fmtDate(d) { if (!d) return '—'; return new Date(d+'T12:00:00').toLocaleDateString('es',{day:'2-digit',month:'2-digit',year:'numeric'}); },
     getDuplexAddress(id) { const d=this.data.duplexes.find(d=>d.id==id); return d?d.address:'—'; },
     getActiveContract(duplexId) {
-      const now = new Date();
-      return this.data.contracts.find(c => c.duplexId==duplexId && new Date(c.startDate)<=now && new Date(c.endDate)>=now);
+      const contracts = this.data.contracts.filter(c => c.duplexId==duplexId);
+      if (!contracts.length) return null;
+      // Devuelve el contrato más reciente (activo o vencido)
+      return contracts.sort((a,b) => new Date(b.startDate)-new Date(a.startDate))[0];
     },
     getContractTenant(cid) { const c=this.data.contracts.find(c=>c.id==cid); return c?c.tenantName:'—'; },
     getDuplexStatus(d) {
-      return this.getActiveContract(d.id)
-        ? {cls:'bg-green-100 text-green-800', label:'Ocupado'}
-        : {cls:'bg-gray-100 text-gray-600', label:'Libre'};
+      const c = this.getActiveContract(d.id);
+      if (!c) return {cls:'bg-gray-100 text-gray-600', label:'Libre'};
+      const expired = new Date(c.endDate) < new Date();
+      return expired
+        ? {cls:'bg-orange-100 text-orange-800', label:'Contrato vencido'}
+        : {cls:'bg-green-100 text-green-800', label:'Ocupado'};
     },
     getContractStatus(c) {
       const now = new Date(); now.setHours(0,0,0,0);
