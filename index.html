@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ContiRent">
+  <title>ContiRent</title>
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    [x-cloak]{display:none!important}
+    body{-webkit-tap-highlight-color:transparent}
+    .slide-enter{animation:slideIn .2s ease}
+    @keyframes slideIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .nav-bottom{padding-bottom:env(safe-area-inset-bottom)}
+    input,select,textarea{font-size:16px!important} /* evita zoom en iOS */
+    .shake{animation:shake .4s ease}
+    @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="app()" x-init="init()">
+
+<!-- ===== PANTALLA DE LOGIN ===== -->
+<div x-show="authState !== 'ok'" x-cloak
+     class="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-blue-600 to-blue-800 px-6">
+  <div class="w-full max-w-sm">
+
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <div class="text-6xl mb-3">🏠</div>
+      <h1 class="text-3xl font-bold text-white">ContiRent</h1>
+      <p class="text-blue-200 text-sm mt-1">Gestión de Duplex</p>
+    </div>
+
+    <!-- SETUP: primera vez -->
+    <div x-show="authState === 'setup'" class="bg-white rounded-2xl p-6 shadow-2xl">
+      <h2 class="text-lg font-bold text-gray-900 mb-1">Crear contraseña</h2>
+      <p class="text-xs text-gray-500 mb-4">Primera vez — elegí una contraseña para proteger tu app.</p>
+      <form @submit.prevent="setupPassword()">
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Contraseña *</label>
+            <input type="password" x-model="auth.pw1" required minlength="4"
+                   placeholder="Mínimo 4 caracteres" autocomplete="new-password"
+                   :class="auth.shakeSetup ? 'shake border-red-400' : 'border-gray-300'"
+                   class="w-full border rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Repetir contraseña *</label>
+            <input type="password" x-model="auth.pw2" required
+                   placeholder="Repetí la contraseña" autocomplete="new-password"
+                   :class="auth.shakeSetup ? 'shake border-red-400' : 'border-gray-300'"
+                   class="w-full border rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500">
+          </div>
+          <p x-show="auth.setupError" class="text-xs text-red-600" x-text="auth.setupError"></p>
+        </div>
+        <button type="submit" class="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-semibold text-sm">
+          Crear contraseña y entrar
+        </button>
+      </form>
+    </div>
+
+    <!-- LOGIN: ingresar contraseña -->
+    <div x-show="authState === 'login'" class="bg-white rounded-2xl p-6 shadow-2xl">
+      <h2 class="text-lg font-bold text-gray-900 mb-1">Bienvenido</h2>
+      <p class="text-xs text-gray-500 mb-4">Ingresá tu contraseña para continuar.</p>
+      <form @submit.prevent="doLogin()">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Contraseña</label>
+          <input type="password" x-model="auth.pw1" required autofocus
+                 placeholder="Tu contraseña" autocomplete="current-password"
+                 :class="auth.loginError ? 'shake border-red-400' : 'border-gray-300'"
+                 @animationend="auth.loginError=''"
+                 class="w-full border rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500">
+          <p x-show="auth.loginError" class="text-xs text-red-600 mt-1" x-text="auth.loginError"></p>
+        </div>
+        <div class="flex items-center gap-2 mt-3">
+          <input type="checkbox" id="remember" x-model="auth.remember" class="rounded">
+          <label for="remember" class="text-xs text-gray-600">Mantener sesión por 30 días</label>
+        </div>
+        <button type="submit" :disabled="auth.checking"
+                class="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-60">
+          <span x-text="auth.checking ? 'Verificando...' : 'Entrar'"></span>
+        </button>
+      </form>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===== NAVBAR SUPERIOR ===== -->
+<nav class="bg-white shadow-sm sticky top-0 z-40 border-b border-gray-200">
+  <div class="flex items-center justify-between px-4 h-14">
+    <button @click="page='dashboard'" class="text-lg font-bold text-blue-600">🏠 ContiRent</button>
+    <div class="flex items-center gap-3">
+      <span class="text-xs text-gray-400" x-text="dbStatus"></span>
+      <button @click="doLogout()" title="Cerrar sesión" class="text-gray-500 hover:text-red-500 p-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+      </button>
+      <button @click="exportBackup()" title="Exportar backup" class="text-gray-500 hover:text-blue-600 p-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      </button>
+      <label title="Importar backup" class="text-gray-500 hover:text-blue-600 p-1 cursor-pointer">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l4-4m0 0l4 4m-4-4v12"/></svg>
+        <input type="file" accept=".json" class="hidden" @change="importBackup($event)">
+      </label>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== CONTENIDO PRINCIPAL ===== -->
+<main class="max-w-2xl mx-auto px-4 py-4 pb-24">
+
+  <!-- TOAST -->
+  <div x-show="toast.show" x-cloak
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0 translate-y-2"
+       x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed top-16 left-4 right-4 z-50 max-w-sm mx-auto">
+    <div :class="toast.type==='ok' ? 'bg-green-600' : 'bg-red-600'"
+         class="text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium" x-text="toast.msg"></div>
+  </div>
+
+  <!-- ==================== DASHBOARD ==================== -->
+  <div x-show="page==='dashboard'" x-cloak class="slide-enter">
+    <h1 class="text-2xl font-bold text-gray-900 mb-4">Dashboard</h1>
+
+    <!-- Alertas -->
+    <div class="grid grid-cols-2 gap-3 mb-6">
+      <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded-lg">
+        <p class="text-xs text-yellow-700 font-medium">Contratos por vencer</p>
+        <p class="text-2xl font-bold text-yellow-800" x-text="dash.expiringContracts"></p>
+        <p class="text-xs text-yellow-600">próx. 30 días</p>
+      </div>
+      <div class="bg-red-50 border-l-4 border-red-500 p-3 rounded-lg">
+        <p class="text-xs text-red-700 font-medium">Pagos vencidos</p>
+        <p class="text-2xl font-bold text-red-800" x-text="dash.overduePayments"></p>
+        <p class="text-xs text-red-600">requieren atención</p>
+      </div>
+      <div class="bg-red-50 border-l-4 border-red-300 p-3 rounded-lg">
+        <p class="text-xs text-red-600 font-medium">Problemas pendientes</p>
+        <p class="text-2xl font-bold text-red-700" x-text="dash.pendingIssues"></p>
+        <p class="text-xs text-red-500">más de 7 días</p>
+      </div>
+      <div class="bg-orange-50 border-l-4 border-orange-400 p-3 rounded-lg">
+        <p class="text-xs text-orange-700 font-medium">Pagos próximos</p>
+        <p class="text-2xl font-bold text-orange-800" x-text="dash.upcomingPayments"></p>
+        <p class="text-xs text-orange-600">próx. 7 días</p>
+      </div>
+    </div>
+
+    <!-- Stats principales -->
+    <div class="grid grid-cols-2 gap-3 mb-6">
+      <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-gray-500">Ocupación</p>
+        <p class="text-2xl font-bold text-blue-600" x-text="dash.occupancyRate + '%'"></p>
+        <p class="text-xs text-gray-400" x-text="dash.occupiedDuplexes + ' de ' + dash.totalDuplexes + ' duplex'"></p>
+      </div>
+      <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-gray-500">Ingresos del mes</p>
+        <p class="text-2xl font-bold text-green-600" x-text="fmt(dash.monthlyIncome)"></p>
+        <button @click="page='payments'" class="text-xs text-green-500 mt-1">Ver pagos →</button>
+      </div>
+      <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-gray-500">Total pendiente</p>
+        <p class="text-2xl font-bold text-yellow-600" x-text="fmt(dash.totalPending)"></p>
+      </div>
+      <div class="bg-white rounded-lg shadow p-4">
+        <p class="text-xs text-gray-500">Total vencido</p>
+        <p class="text-2xl font-bold text-red-600" x-text="fmt(dash.totalOverdue)"></p>
+      </div>
+    </div>
+
+    <!-- Gráfico ingresos mensuales -->
+    <div class="bg-white rounded-lg shadow p-4 mb-4">
+      <h3 class="text-sm font-semibold text-gray-700 mb-3">Ingresos mensuales</h3>
+      <canvas id="chartIncome" height="150"></canvas>
+    </div>
+
+    <!-- Gráfico métodos de pago -->
+    <div class="bg-white rounded-lg shadow p-4 mb-4">
+      <h3 class="text-sm font-semibold text-gray-700 mb-3">Métodos de pago</h3>
+      <canvas id="chartMethods" height="150"></canvas>
+    </div>
+
+    <!-- Acciones rápidas -->
+    <h2 class="text-base font-semibold text-gray-700 mb-3">Acciones rápidas</h2>
+    <div class="grid grid-cols-2 gap-3">
+      <button @click="openForm('duplexes')" class="bg-white p-4 rounded-lg shadow text-left border-2 border-transparent hover:border-blue-400 active:border-blue-500">
+        <span class="text-2xl">🏠</span>
+        <p class="text-sm font-medium text-gray-800 mt-1">Nuevo Duplex</p>
+      </button>
+      <button @click="openForm('contracts')" class="bg-white p-4 rounded-lg shadow text-left border-2 border-transparent hover:border-green-400">
+        <span class="text-2xl">📄</span>
+        <p class="text-sm font-medium text-gray-800 mt-1">Nuevo Contrato</p>
+      </button>
+      <button @click="openForm('payments')" class="bg-white p-4 rounded-lg shadow text-left border-2 border-transparent hover:border-yellow-400">
+        <span class="text-2xl">💰</span>
+        <p class="text-sm font-medium text-gray-800 mt-1">Registrar Pago</p>
+      </button>
+      <button @click="openForm('issues')" class="bg-white p-4 rounded-lg shadow text-left border-2 border-transparent hover:border-red-400">
+        <span class="text-2xl">🔧</span>
+        <p class="text-sm font-medium text-gray-800 mt-1">Reportar Problema</p>
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================== DUPLEX ==================== -->
+  <div x-show="page==='duplexes'" x-cloak class="slide-enter">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold text-gray-900">Duplex</h1>
+      <button @click="openForm('duplexes')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+    </div>
+    <input type="search" placeholder="Buscar dirección..." x-model="search.duplexes"
+           class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 text-sm">
+    <div class="space-y-3">
+      <template x-for="d in filteredDuplexes()" :key="d.id">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-900 truncate" x-text="d.address"></p>
+              <p class="text-xs text-gray-500 mt-1" x-text="d.description || 'Sin descripción'"></p>
+              <div class="flex items-center gap-2 mt-2">
+                <span :class="getDuplexStatus(d).cls" class="text-xs px-2 py-0.5 rounded-full font-medium" x-text="getDuplexStatus(d).label"></span>
+                <span class="text-xs text-gray-400" x-text="'Contrato activo: ' + (getActiveContract(d.id) ? getActiveContract(d.id).tenantName : 'Libre')"></span>
+              </div>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button @click="editItem('duplexes', d)" class="text-blue-500 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button @click="deleteItem('duplexes', d.id)" class="text-red-400 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="filteredDuplexes().length===0" class="text-center text-gray-400 py-8">No hay duplex registrados</p>
+    </div>
+  </div>
+
+  <!-- ==================== CONTRATOS ==================== -->
+  <div x-show="page==='contracts'" x-cloak class="slide-enter">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold text-gray-900">Contratos</h1>
+      <button @click="openForm('contracts')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+    </div>
+    <div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+      <button @click="filter.contracts='all'" :class="filter.contracts==='all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Todos</button>
+      <button @click="filter.contracts='active'" :class="filter.contracts==='active' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Activos</button>
+      <button @click="filter.contracts='expiring'" :class="filter.contracts==='expiring' ? 'bg-yellow-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Por vencer</button>
+      <button @click="filter.contracts='expired'" :class="filter.contracts==='expired' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Vencidos</button>
+    </div>
+    <div class="space-y-3">
+      <template x-for="c in filteredContracts()" :key="c.id">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-900" x-text="c.tenantName"></p>
+              <p class="text-xs text-blue-600 mt-0.5" x-text="getDuplexAddress(c.duplexId)"></p>
+              <div class="flex flex-wrap gap-2 mt-2">
+                <span :class="getContractStatus(c).cls" class="text-xs px-2 py-0.5 rounded-full font-medium" x-text="getContractStatus(c).label"></span>
+                <span class="text-xs text-gray-500" x-text="fmtDate(c.startDate) + ' → ' + fmtDate(c.endDate)"></span>
+              </div>
+              <div class="flex gap-3 mt-2 text-xs text-gray-500">
+                <span x-show="c.tenantPhone">📞 <a :href="'tel:'+c.tenantPhone" class="text-blue-500" x-text="c.tenantPhone"></a></span>
+                <span x-show="c.tenantEmail">✉️ <a :href="'mailto:'+c.tenantEmail" class="text-blue-500" x-text="c.tenantEmail"></a></span>
+              </div>
+              <p class="text-sm font-semibold text-green-700 mt-1" x-text="'Alquiler: ' + fmt(c.monthlyRent || 0) + '/mes'"></p>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button @click="editItem('contracts', c)" class="text-blue-500 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button @click="deleteItem('contracts', c.id)" class="text-red-400 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="filteredContracts().length===0" class="text-center text-gray-400 py-8">No hay contratos</p>
+    </div>
+  </div>
+
+  <!-- ==================== PAGOS ==================== -->
+  <div x-show="page==='payments'" x-cloak class="slide-enter">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold text-gray-900">Pagos</h1>
+      <button @click="openForm('payments')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+    </div>
+    <div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+      <button @click="filter.payments='all'" :class="filter.payments==='all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Todos</button>
+      <button @click="filter.payments='Pendiente'" :class="filter.payments==='Pendiente' ? 'bg-yellow-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Pendientes</button>
+      <button @click="filter.payments='Vencido'" :class="filter.payments==='Vencido' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Vencidos</button>
+      <button @click="filter.payments='Pagado'" :class="filter.payments==='Pagado' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Pagados</button>
+      <button @click="filter.payments='Parcial'" :class="filter.payments==='Parcial' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Parciales</button>
+    </div>
+    <div class="space-y-3">
+      <template x-for="p in filteredPayments()" :key="p.id">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span :class="paymentStatusCls(p.status)" class="text-xs px-2 py-0.5 rounded-full font-medium" x-text="p.status"></span>
+                <span class="text-xs text-gray-500" x-text="p.method"></span>
+              </div>
+              <p class="text-lg font-bold text-gray-900 mt-1" x-text="fmt(p.amount)"></p>
+              <p class="text-xs text-blue-600" x-text="getContractTenant(p.contractId)"></p>
+              <p class="text-xs text-gray-500 mt-1" x-text="'Vence: ' + fmtDate(p.dueDate)" ></p>
+              <p class="text-xs text-gray-400" x-show="p.paymentDate" x-text="'Pagado: ' + fmtDate(p.paymentDate)"></p>
+              <p class="text-xs text-gray-400 italic" x-show="p.notes" x-text="p.notes"></p>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button @click="editItem('payments', p)" class="text-blue-500 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button @click="deleteItem('payments', p.id)" class="text-red-400 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="filteredPayments().length===0" class="text-center text-gray-400 py-8">No hay pagos</p>
+    </div>
+  </div>
+
+  <!-- ==================== PROBLEMAS ==================== -->
+  <div x-show="page==='issues'" x-cloak class="slide-enter">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold text-gray-900">Problemas</h1>
+      <button @click="openForm('issues')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+    </div>
+    <div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+      <button @click="filter.issues='all'" :class="filter.issues==='all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Todos</button>
+      <button @click="filter.issues='Pendiente'" :class="filter.issues==='Pendiente' ? 'bg-red-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Pendientes</button>
+      <button @click="filter.issues='En Proceso'" :class="filter.issues==='En Proceso' ? 'bg-yellow-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">En Proceso</button>
+      <button @click="filter.issues='Resuelto'" :class="filter.issues==='Resuelto' ? 'bg-green-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Resueltos</button>
+    </div>
+    <div class="space-y-3">
+      <template x-for="i in filteredIssues()" :key="i.id">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 mb-1">
+                <span :class="issueStatusCls(i.status)" class="text-xs px-2 py-0.5 rounded-full font-medium" x-text="i.status"></span>
+                <span class="text-xs text-blue-600" x-text="getDuplexAddress(i.duplexId)"></span>
+              </div>
+              <p class="text-sm text-gray-900" x-text="i.description"></p>
+              <p class="text-xs text-gray-500 mt-1" x-text="'Reportado: ' + fmtDate(i.reportedDate)"></p>
+              <p class="text-xs text-gray-400" x-show="i.resolvedDate" x-text="'Resuelto: ' + fmtDate(i.resolvedDate)"></p>
+              <p class="text-xs text-gray-400 italic mt-1" x-show="i.notes" x-text="i.notes"></p>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button @click="editItem('issues', i)" class="text-blue-500 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button @click="deleteItem('issues', i.id)" class="text-red-400 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="filteredIssues().length===0" class="text-center text-gray-400 py-8">No hay problemas registrados</p>
+    </div>
+  </div>
+
+  <!-- ==================== CONTACTOS ==================== -->
+  <div x-show="page==='contacts'" x-cloak class="slide-enter">
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold text-gray-900">Contactos</h1>
+      <button @click="openForm('contacts')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+    </div>
+    <input type="search" placeholder="Buscar contacto..." x-model="search.contacts"
+           class="w-full border border-gray-300 rounded-lg px-3 py-2 mb-4 text-sm">
+    <div class="space-y-3">
+      <template x-for="c in filteredContacts()" :key="c.id">
+        <div class="bg-white rounded-lg shadow p-4">
+          <div class="flex justify-between items-start">
+            <div class="flex-1 min-w-0">
+              <p class="font-semibold text-gray-900" x-text="c.providerName"></p>
+              <p class="text-xs text-blue-600 mt-0.5 font-medium" x-text="c.serviceType"></p>
+              <div class="mt-2 space-y-1">
+                <template x-for="ph in (c.phones || [])" :key="ph">
+                  <p class="text-sm"><a :href="'tel:'+ph" class="text-blue-500">📞 <span x-text="ph"></span></a></p>
+                </template>
+                <p x-show="c.email" class="text-sm"><a :href="'mailto:'+c.email" class="text-blue-500">✉️ <span x-text="c.email"></span></a></p>
+              </div>
+              <p class="text-xs text-gray-400 italic mt-1" x-show="c.notes" x-text="c.notes"></p>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button @click="editItem('contacts', c)" class="text-blue-500 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>
+              <button @click="deleteItem('contacts', c.id)" class="text-red-400 p-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+      <p x-show="filteredContacts().length===0" class="text-center text-gray-400 py-8">No hay contactos</p>
+    </div>
+  </div>
+
+</main>
+
+<!-- ===== NAVBAR INFERIOR ===== -->
+<nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 nav-bottom">
+  <div class="flex justify-around items-center h-16 max-w-2xl mx-auto px-4">
+    <button @click="page='dashboard'" :class="page==='dashboard' ? 'text-blue-600' : 'text-gray-400'" class="flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+      <span class="text-xs">Inicio</span>
+    </button>
+    <button @click="page='duplexes'" :class="page==='duplexes' ? 'text-blue-600' : 'text-gray-400'" class="flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+      <span class="text-xs">Duplex</span>
+    </button>
+    <button @click="page='contracts'" :class="page==='contracts' ? 'text-blue-600' : 'text-gray-400'" class="flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      <span class="text-xs">Contratos</span>
+    </button>
+    <button @click="page='payments'" :class="page==='payments' ? 'text-blue-600' : 'text-gray-400'" class="flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span class="text-xs">Pagos</span>
+    </button>
+    <button @click="page='issues'" :class="page==='issues' ? 'text-blue-600' : 'text-gray-400'" class="flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+      <span class="text-xs">Problemas</span>
+    </button>
+    <button @click="page='contacts'" :class="page==='contacts' ? 'text-blue-600' : 'text-gray-400'" class="flex flex-col items-center gap-0.5 min-w-0 flex-1 py-1">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      <span class="text-xs">Contactos</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ===== MODAL FORMULARIO ===== -->
+<div x-show="modal.open" x-cloak
+     class="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+     @keydown.escape.window="modal.open=false">
+  <div class="absolute inset-0 bg-black bg-opacity-40" @click="modal.open=false"></div>
+  <div class="relative bg-white w-full max-w-lg rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-screen overflow-y-auto"
+       style="max-height:90vh">
+    <div class="sticky top-0 bg-white flex justify-between items-center px-4 py-3 border-b border-gray-200 rounded-t-2xl">
+      <h2 class="text-lg font-semibold text-gray-900" x-text="modal.title"></h2>
+      <button @click="modal.open=false" class="text-gray-400 hover:text-gray-600 p-1">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="p-4">
+
+      <!-- FORM DUPLEX -->
+      <form x-show="modal.type==='duplexes'" @submit.prevent="saveItem('duplexes')" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Dirección *</label>
+          <input type="text" x-model="form.address" required placeholder="Ej: Calle 123, Barrio"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+          <textarea x-model="form.description" rows="2" placeholder="Notas del duplex"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Latitud</label>
+            <input type="number" step="any" x-model="form.latitude" placeholder="-25.2867"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Longitud</label>
+            <input type="number" step="any" x-model="form.longitude" placeholder="-57.6475"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <button type="submit" :disabled="saving"
+                class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium disabled:opacity-50">
+          <span x-text="saving ? 'Guardando...' : (form.id ? 'Actualizar' : 'Crear Duplex')"></span>
+        </button>
+      </form>
+
+      <!-- FORM CONTRATO -->
+      <form x-show="modal.type==='contracts'" @submit.prevent="saveItem('contracts')" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Duplex *</label>
+          <select x-model="form.duplexId" required
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            <option value="">Seleccionar duplex...</option>
+            <template x-for="d in data.duplexes" :key="d.id">
+              <option :value="d.id" x-text="d.address"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del inquilino *</label>
+          <input type="text" x-model="form.tenantName" required placeholder="Nombre completo"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+            <input type="tel" x-model="form.tenantPhone" placeholder="0981 000000"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" x-model="form.tenantEmail" placeholder="correo@ejemplo.com"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Inicio *</label>
+            <input type="date" x-model="form.startDate" required
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fin *</label>
+            <input type="date" x-model="form.endDate" required
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Alquiler mensual</label>
+          <input type="number" x-model="form.monthlyRent" placeholder="0" min="0"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <button type="submit" :disabled="saving"
+                class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium disabled:opacity-50">
+          <span x-text="saving ? 'Guardando...' : (form.id ? 'Actualizar' : 'Crear Contrato')"></span>
+        </button>
+      </form>
+
+      <!-- FORM PAGO -->
+      <form x-show="modal.type==='payments'" @submit.prevent="saveItem('payments')" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Contrato / Inquilino *</label>
+          <select x-model="form.contractId" required
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Seleccionar contrato...</option>
+            <template x-for="c in data.contracts" :key="c.id">
+              <option :value="c.id" x-text="c.tenantName + ' — ' + getDuplexAddress(c.duplexId)"></option>
+            </template>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Monto *</label>
+            <input type="number" x-model="form.amount" required min="0" placeholder="0"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento *</label>
+            <input type="date" x-model="form.dueDate" required
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+            <select x-model="form.status"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option>Pendiente</option>
+              <option>Pagado</option>
+              <option>Vencido</option>
+              <option>Parcial</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Método</label>
+            <select x-model="form.method"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option>Efectivo</option>
+              <option>Transferencia</option>
+              <option>Cheque</option>
+              <option>Mercado Pago</option>
+              <option>Otro</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de pago</label>
+          <input type="date" x-model="form.paymentDate"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Referencia / Notas</label>
+          <input type="text" x-model="form.notes" placeholder="Número de transferencia, observaciones..."
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <button type="submit" :disabled="saving"
+                class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium disabled:opacity-50">
+          <span x-text="saving ? 'Guardando...' : (form.id ? 'Actualizar' : 'Registrar Pago')"></span>
+        </button>
+      </form>
+
+      <!-- FORM PROBLEMA -->
+      <form x-show="modal.type==='issues'" @submit.prevent="saveItem('issues')" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Duplex *</label>
+          <select x-model="form.duplexId" required
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="">Seleccionar duplex...</option>
+            <template x-for="d in data.duplexes" :key="d.id">
+              <option :value="d.id" x-text="d.address"></option>
+            </template>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Descripción del problema *</label>
+          <textarea x-model="form.description" required rows="3"
+                    placeholder="Describe el problema..."
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+            <select x-model="form.status"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+              <option>Pendiente</option>
+              <option>En Proceso</option>
+              <option>Resuelto</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha reporte</label>
+            <input type="date" x-model="form.reportedDate"
+                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+          </div>
+        </div>
+        <div x-show="form.status==='Resuelto'">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha resolución</label>
+          <input type="date" x-model="form.resolvedDate"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Notas adicionales</label>
+          <textarea x-model="form.notes" rows="2" placeholder="Qué se hizo, materiales, etc."
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+        </div>
+        <button type="submit" :disabled="saving"
+                class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium disabled:opacity-50">
+          <span x-text="saving ? 'Guardando...' : (form.id ? 'Actualizar' : 'Reportar Problema')"></span>
+        </button>
+      </form>
+
+      <!-- FORM CONTACTO -->
+      <form x-show="modal.type==='contacts'" @submit.prevent="saveItem('contacts')" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Nombre / Empresa *</label>
+          <input type="text" x-model="form.providerName" required placeholder="Nombre del proveedor"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de servicio *</label>
+          <input type="text" x-model="form.serviceType" required placeholder="Ej: Plomero, Electricista, Pintura"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Teléfonos (separados por coma)</label>
+          <input type="text" x-model="form.phonesRaw" placeholder="0981 000000, 021 000000"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+          <input type="email" x-model="form.email" placeholder="correo@ejemplo.com"
+                 class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+          <textarea x-model="form.notes" rows="2" placeholder="Horarios, referencias, etc."
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"></textarea>
+        </div>
+        <button type="submit" :disabled="saving"
+                class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium disabled:opacity-50">
+          <span x-text="saving ? 'Guardando...' : (form.id ? 'Actualizar' : 'Guardar Contacto')"></span>
+        </button>
+      </form>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// BASE DE DATOS — IndexedDB wrapper
+// ============================================================
+const DB_NAME = 'ContiRentDB';
+const DB_VERSION = 1;
+const STORES = ['duplexes','contracts','payments','issues','contacts'];
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      STORES.forEach(s => {
+        if (!db.objectStoreNames.contains(s)) {
+          db.createObjectStore(s, {keyPath:'id', autoIncrement:true});
+        }
+      });
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = e => reject(e.target.error);
+  });
+}
+
+async function dbGetAll(store) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbPut(store, item) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).put({...item, updatedAt: new Date().toISOString()});
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbDelete(store, id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ============================================================
+// APP ALPINE
+// ============================================================
+// ============================================================
+// AUTH — hash SHA-256 via Web Crypto
+// ============================================================
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+const AUTH_KEY   = 'cr_auth_hash';
+const SESSION_KEY = 'cr_session';
+
+function getSessionOk() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
+    if (!s) return false;
+    return s.expires === 'never' || Date.now() < s.expires;
+  } catch { return false; }
+}
+
+function clearSession() { localStorage.removeItem(SESSION_KEY); }
+
+function saveSession(remember) {
+  const expires = remember ? Date.now() + 30*24*60*60*1000 : 'never';
+  localStorage.setItem(SESSION_KEY, JSON.stringify({expires}));
+}
+
+function app() {
+  return {
+    // auth
+    authState: localStorage.getItem(AUTH_KEY) ? (getSessionOk() ? 'ok' : 'login') : 'setup',
+    auth: { pw1:'', pw2:'', remember:true, checking:false, loginError:'', setupError:'', shakeSetup:false },
+
+    page: 'dashboard',
+    dbStatus: '',
+    saving: false,
+    data: { duplexes:[], contracts:[], payments:[], issues:[], contacts:[] },
+    search: { duplexes:'', contacts:'' },
+    filter: { contracts:'all', payments:'all', issues:'all' },
+    toast: { show:false, msg:'', type:'ok' },
+    modal: { open:false, type:'', title:'' },
+    form: {},
+    dash: {
+      expiringContracts:0, overduePayments:0, pendingIssues:0, upcomingPayments:0,
+      occupancyRate:0, totalDuplexes:0, occupiedDuplexes:0,
+      monthlyIncome:0, totalPending:0, totalOverdue:0
+    },
+    charts: { income: null, methods: null },
+
+    // ---------- AUTH ----------
+    async setupPassword() {
+      this.auth.setupError = '';
+      if (this.auth.pw1.length < 4) { this.auth.setupError = 'Mínimo 4 caracteres.'; this.auth.shakeSetup=true; setTimeout(()=>this.auth.shakeSetup=false,500); return; }
+      if (this.auth.pw1 !== this.auth.pw2) { this.auth.setupError = 'Las contraseñas no coinciden.'; this.auth.shakeSetup=true; setTimeout(()=>this.auth.shakeSetup=false,500); return; }
+      const hash = await sha256(this.auth.pw1);
+      localStorage.setItem(AUTH_KEY, hash);
+      saveSession(true);
+      this.auth.pw1 = ''; this.auth.pw2 = '';
+      this.authState = 'ok';
+      await this.loadAll(); this.computeDash(); this.$nextTick(()=>this.renderCharts());
+    },
+    async doLogin() {
+      this.auth.checking = true; this.auth.loginError = '';
+      try {
+        const hash = await sha256(this.auth.pw1);
+        if (hash !== localStorage.getItem(AUTH_KEY)) {
+          this.auth.loginError = 'Contraseña incorrecta.';
+          this.auth.pw1 = '';
+        } else {
+          saveSession(this.auth.remember);
+          this.auth.pw1 = '';
+          this.authState = 'ok';
+          await this.loadAll(); this.computeDash(); this.$nextTick(()=>this.renderCharts());
+        }
+      } finally { this.auth.checking = false; }
+    },
+    doLogout() {
+      if (!confirm('¿Cerrar sesión?')) return;
+      clearSession();
+      this.auth.pw1 = ''; this.auth.pw2 = '';
+      this.authState = 'login';
+    },
+
+    async init() {
+      // Registrar service worker siempre
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(()=>{});
+      }
+      if (this.authState !== 'ok') return;
+      try {
+        await this.loadAll();
+        this.computeDash();
+        this.dbStatus = '✓ Datos locales';
+        this.$watch('page', v => { if(v==='dashboard') { this.computeDash(); this.$nextTick(() => this.renderCharts()); }});
+        this.$nextTick(() => this.renderCharts());
+      } catch(e) {
+        this.dbStatus = '⚠ Error DB';
+        console.error(e);
+      }
+    },
+
+    async loadAll() {
+      const [d,c,p,i,ct] = await Promise.all(STORES.map(s => dbGetAll(s)));
+      this.data.duplexes = d;
+      this.data.contracts = c;
+      this.data.payments = p;
+      this.data.issues = i;
+      this.data.contacts = ct;
+    },
+
+    // ---------- DASHBOARD ----------
+    computeDash() {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const in30 = new Date(today); in30.setDate(in30.getDate()+30);
+      const in7  = new Date(today); in7.setDate(in7.getDate()+7);
+      const ago7 = new Date(today); ago7.setDate(ago7.getDate()-7);
+
+      this.dash.expiringContracts = this.data.contracts.filter(c => {
+        const end = new Date(c.endDate);
+        return end >= today && end <= in30;
+      }).length;
+
+      this.dash.overduePayments = this.data.payments.filter(p => p.status === 'Vencido').length;
+
+      this.dash.upcomingPayments = this.data.payments.filter(p => {
+        if (p.status !== 'Pendiente') return false;
+        const d = new Date(p.dueDate);
+        return d >= today && d <= in7;
+      }).length;
+
+      this.dash.pendingIssues = this.data.issues.filter(i => {
+        if (i.status === 'Resuelto') return false;
+        const d = new Date(i.reportedDate || i.createdAt || today);
+        return d <= ago7;
+      }).length;
+
+      // Ocupación: duplex con contrato activo
+      const now = new Date();
+      const activeDuplexIds = new Set(
+        this.data.contracts
+          .filter(c => new Date(c.startDate) <= now && new Date(c.endDate) >= now)
+          .map(c => c.duplexId)
+      );
+      this.dash.totalDuplexes = this.data.duplexes.length;
+      this.dash.occupiedDuplexes = activeDuplexIds.size;
+      this.dash.occupancyRate = this.dash.totalDuplexes
+        ? Math.round(activeDuplexIds.size / this.dash.totalDuplexes * 100) : 0;
+
+      // Ingresos del mes actual
+      const thisMonth = now.getMonth();
+      const thisYear  = now.getFullYear();
+      this.dash.monthlyIncome = this.data.payments
+        .filter(p => p.status === 'Pagado' && p.paymentDate)
+        .filter(p => { const d = new Date(p.paymentDate); return d.getMonth()===thisMonth && d.getFullYear()===thisYear; })
+        .reduce((s,p) => s + Number(p.amount||0), 0);
+
+      this.dash.totalPending = this.data.payments
+        .filter(p => p.status === 'Pendiente')
+        .reduce((s,p) => s + Number(p.amount||0), 0);
+
+      this.dash.totalOverdue = this.data.payments
+        .filter(p => p.status === 'Vencido')
+        .reduce((s,p) => s + Number(p.amount||0), 0);
+    },
+
+    renderCharts() {
+      // Ingresos últimos 6 meses
+      const now = new Date();
+      const months = [];
+      const incomes = [];
+      for (let i=5; i>=0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+        months.push(d.toLocaleString('es',{month:'short', year:'2-digit'}));
+        const m = d.getMonth(), y = d.getFullYear();
+        const total = this.data.payments
+          .filter(p => p.status==='Pagado' && p.paymentDate)
+          .filter(p => { const pd=new Date(p.paymentDate); return pd.getMonth()===m && pd.getFullYear()===y; })
+          .reduce((s,p) => s+Number(p.amount||0), 0);
+        incomes.push(total);
+      }
+
+      const ctxI = document.getElementById('chartIncome');
+      if (ctxI) {
+        if (this.charts.income) this.charts.income.destroy();
+        this.charts.income = new Chart(ctxI, {
+          type:'line',
+          data:{
+            labels:months,
+            datasets:[{label:'Ingresos',data:incomes,
+              borderColor:'rgb(59,130,246)',backgroundColor:'rgba(59,130,246,0.1)',
+              tension:0.4,fill:true,pointRadius:4}]
+          },
+          options:{responsive:true,maintainAspectRatio:false,
+            plugins:{legend:{display:false}},
+            scales:{y:{beginAtZero:true,ticks:{callback:v=>'₲'+v.toLocaleString()}}}}
+        });
+      }
+
+      // Métodos de pago
+      const methods = {};
+      this.data.payments.filter(p=>p.status==='Pagado').forEach(p=>{
+        methods[p.method||'Otro'] = (methods[p.method||'Otro']||0)+1;
+      });
+      const ctxM = document.getElementById('chartMethods');
+      if (ctxM && Object.keys(methods).length) {
+        if (this.charts.methods) this.charts.methods.destroy();
+        this.charts.methods = new Chart(ctxM, {
+          type:'doughnut',
+          data:{
+            labels:Object.keys(methods),
+            datasets:[{data:Object.values(methods),
+              backgroundColor:['rgba(59,130,246,0.8)','rgba(16,185,129,0.8)',
+                'rgba(245,158,11,0.8)','rgba(139,92,246,0.8)','rgba(236,72,153,0.8)']}]
+          },
+          options:{responsive:true,maintainAspectRatio:false,
+            plugins:{legend:{position:'bottom'}}}
+        });
+      }
+    },
+
+    // ---------- FILTROS ----------
+    filteredDuplexes() {
+      const s = this.search.duplexes.toLowerCase();
+      return this.data.duplexes.filter(d =>
+        d.address.toLowerCase().includes(s) || (d.description||'').toLowerCase().includes(s)
+      );
+    },
+    filteredContracts() {
+      const now = new Date(); now.setHours(0,0,0,0);
+      const in30 = new Date(now); in30.setDate(in30.getDate()+30);
+      return this.data.contracts.filter(c => {
+        if (this.filter.contracts === 'all') return true;
+        const end = new Date(c.endDate);
+        const start = new Date(c.startDate);
+        if (this.filter.contracts === 'active') return start <= now && end >= now;
+        if (this.filter.contracts === 'expiring') return end >= now && end <= in30;
+        if (this.filter.contracts === 'expired') return end < now;
+        return true;
+      }).sort((a,b) => new Date(b.startDate)-new Date(a.startDate));
+    },
+    filteredPayments() {
+      return this.data.payments.filter(p =>
+        this.filter.payments === 'all' || p.status === this.filter.payments
+      ).sort((a,b) => new Date(b.dueDate)-new Date(a.dueDate));
+    },
+    filteredIssues() {
+      return this.data.issues.filter(i =>
+        this.filter.issues === 'all' || i.status === this.filter.issues
+      ).sort((a,b) => new Date(b.reportedDate||b.createdAt)-new Date(a.reportedDate||a.createdAt));
+    },
+    filteredContacts() {
+      const s = this.search.contacts.toLowerCase();
+      return this.data.contacts.filter(c =>
+        c.providerName.toLowerCase().includes(s) || (c.serviceType||'').toLowerCase().includes(s)
+      );
+    },
+
+    // ---------- HELPERS ----------
+    fmt(n) { return '₲ ' + Number(n||0).toLocaleString('es'); },
+    fmtDate(d) { if (!d) return '—'; return new Date(d+'T12:00:00').toLocaleDateString('es',{day:'2-digit',month:'2-digit',year:'numeric'}); },
+    getDuplexAddress(id) { const d=this.data.duplexes.find(d=>d.id==id); return d?d.address:'—'; },
+    getActiveContract(duplexId) {
+      const now = new Date();
+      return this.data.contracts.find(c => c.duplexId==duplexId && new Date(c.startDate)<=now && new Date(c.endDate)>=now);
+    },
+    getContractTenant(cid) { const c=this.data.contracts.find(c=>c.id==cid); return c?c.tenantName:'—'; },
+    getDuplexStatus(d) {
+      return this.getActiveContract(d.id)
+        ? {cls:'bg-green-100 text-green-800', label:'Ocupado'}
+        : {cls:'bg-gray-100 text-gray-600', label:'Libre'};
+    },
+    getContractStatus(c) {
+      const now = new Date(); now.setHours(0,0,0,0);
+      const in30 = new Date(now); in30.setDate(in30.getDate()+30);
+      const end = new Date(c.endDate);
+      const start = new Date(c.startDate);
+      if (end < now) return {cls:'bg-red-100 text-red-800', label:'Vencido'};
+      if (start <= now && end >= now && end <= in30) return {cls:'bg-yellow-100 text-yellow-800', label:'Por vencer'};
+      if (start <= now && end >= now) return {cls:'bg-green-100 text-green-800', label:'Activo'};
+      return {cls:'bg-blue-100 text-blue-800', label:'Futuro'};
+    },
+    paymentStatusCls(s) {
+      return {
+        'Pagado':'bg-green-100 text-green-800','Pendiente':'bg-yellow-100 text-yellow-800',
+        'Vencido':'bg-red-100 text-red-800','Parcial':'bg-orange-100 text-orange-800'
+      }[s] || 'bg-gray-100 text-gray-600';
+    },
+    issueStatusCls(s) {
+      return {'Pendiente':'bg-red-100 text-red-800','En Proceso':'bg-yellow-100 text-yellow-800','Resuelto':'bg-green-100 text-green-800'}[s]||'bg-gray-100 text-gray-600';
+    },
+
+    // ---------- FORMULARIOS ----------
+    openForm(type) {
+      const titles = {duplexes:'Nuevo Duplex',contracts:'Nuevo Contrato',payments:'Registrar Pago',issues:'Reportar Problema',contacts:'Nuevo Contacto'};
+      this.modal.type = type;
+      this.modal.title = titles[type];
+      this.modal.open = true;
+      const today = new Date().toISOString().split('T')[0];
+      const defaults = {
+        duplexes: {address:'',description:'',latitude:null,longitude:null},
+        contracts: {duplexId:'',tenantName:'',tenantPhone:'',tenantEmail:'',startDate:today,endDate:'',monthlyRent:''},
+        payments:  {contractId:'',amount:'',dueDate:today,status:'Pendiente',method:'Efectivo',paymentDate:'',notes:''},
+        issues:    {duplexId:'',description:'',status:'Pendiente',reportedDate:today,resolvedDate:'',notes:''},
+        contacts:  {providerName:'',serviceType:'',phonesRaw:'',email:'',notes:''},
+      };
+      this.form = {...defaults[type]};
+    },
+    editItem(type, item) {
+      const titles = {duplexes:'Editar Duplex',contracts:'Editar Contrato',payments:'Editar Pago',issues:'Editar Problema',contacts:'Editar Contacto'};
+      this.modal.type = type;
+      this.modal.title = titles[type];
+      this.modal.open = true;
+      this.form = {...item};
+      if (type==='contacts') this.form.phonesRaw = (item.phones||[]).join(', ');
+    },
+    async saveItem(type) {
+      this.saving = true;
+      try {
+        const item = {...this.form, createdAt: this.form.createdAt || new Date().toISOString()};
+        if (type==='contacts') {
+          item.phones = (item.phonesRaw||'').split(',').map(p=>p.trim()).filter(Boolean);
+          delete item.phonesRaw;
+        }
+        // Conversiones numéricas
+        if (type==='duplexes') { item.latitude=Number(item.latitude)||null; item.longitude=Number(item.longitude)||null; }
+        if (type==='contracts') { item.duplexId=Number(item.duplexId); item.monthlyRent=Number(item.monthlyRent)||0; }
+        if (type==='payments') { item.contractId=Number(item.contractId); item.amount=Number(item.amount)||0; }
+        if (type==='issues') { item.duplexId=Number(item.duplexId); }
+
+        await dbPut(type, item);
+        await this.loadAll();
+        this.computeDash();
+        this.modal.open = false;
+        this.showToast('✓ Guardado correctamente', 'ok');
+      } catch(e) {
+        this.showToast('Error al guardar: '+e.message, 'err');
+      } finally {
+        this.saving = false;
+      }
+    },
+    async deleteItem(type, id) {
+      if (!confirm('¿Eliminar este registro? Esta acción no se puede deshacer.')) return;
+      try {
+        await dbDelete(type, id);
+        await this.loadAll();
+        this.computeDash();
+        this.showToast('Eliminado', 'ok');
+      } catch(e) {
+        this.showToast('Error: '+e.message, 'err');
+      }
+    },
+
+    // ---------- TOAST ----------
+    showToast(msg, type='ok') {
+      this.toast = {show:true, msg, type};
+      setTimeout(() => this.toast.show=false, 2800);
+    },
+
+    // ---------- BACKUP ----------
+    exportBackup() {
+      const data = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        duplexes: this.data.duplexes,
+        contracts: this.data.contracts,
+        payments: this.data.payments,
+        issues: this.data.issues,
+        contacts: this.data.contacts
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'contirent-backup-' + new Date().toISOString().split('T')[0] + '.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      this.showToast('✓ Backup exportado', 'ok');
+    },
+    async importBackup(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      if (!confirm('¿Importar backup? Se reemplazarán TODOS los datos actuales.')) {
+        event.target.value = ''; return;
+      }
+      try {
+        const text = await file.text();
+        const backup = JSON.parse(text);
+        const db = await openDB();
+        for (const store of STORES) {
+          if (!backup[store]) continue;
+          await new Promise((res,rej) => {
+            const tx = db.transaction(store,'readwrite');
+            tx.objectStore(store).clear().onsuccess = () => {
+              backup[store].forEach(item => tx.objectStore(store).put(item));
+              tx.oncomplete = res; tx.onerror = rej;
+            };
+          });
+        }
+        await this.loadAll();
+        this.computeDash();
+        this.showToast('✓ Backup importado correctamente', 'ok');
+      } catch(e) {
+        this.showToast('Error al importar: '+e.message, 'err');
+      }
+      event.target.value = '';
+    }
+  };
+}
+</script>
+</body>
+</html>
