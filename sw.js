@@ -1,4 +1,4 @@
-const CACHE = 'contirent-v3';
+const CACHE = 'contirent-v5';
 const ASSETS = [
   './index.html',
   'https://cdn.tailwindcss.com',

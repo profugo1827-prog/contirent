@@ -297,7 +297,10 @@
   <div x-show="page==='payments'" x-cloak class="slide-enter">
     <div class="flex justify-between items-center mb-4">
       <h1 class="text-2xl font-bold text-gray-900">Pagos</h1>
-      <button @click="openForm('payments')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+      <div class="flex gap-2">
+        <button @click="generateMonthlyPayments()" title="Generar pago pendiente para cada contrato activo que todavía no tenga uno este mes" class="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium">📅 Generar mes</button>
+        <button @click="openForm('payments')" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium">+ Nuevo</button>
+      </div>
     </div>
     <div class="flex gap-2 mb-4 overflow-x-auto pb-1">
       <button @click="filter.payments='all'" :class="filter.payments==='all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-300'" class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap">Todos</button>
@@ -1146,6 +1149,36 @@ function app() {
         this.showToast('Error al guardar: '+e.message, 'err');
       } finally {
         this.saving = false;
+      }
+    },
+    async generateMonthlyPayments() {
+      const now = new Date(); now.setHours(0,0,0,0);
+      const period = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+      const activeContracts = this.data.contracts.filter(c => {
+        const start = new Date(c.startDate+'T12:00:00'), end = new Date(c.endDate+'T12:00:00');
+        return start <= now && end >= now;
+      });
+      const existing = new Set(this.data.payments.map(p => p.contractId + '|' + this.paymentPeriod(p)));
+      const toCreate = activeContracts.filter(c => !existing.has(c.id + '|' + period));
+      if (!toCreate.length) { this.showToast('Ya existen pagos generados para este mes', 'ok'); return; }
+      if (!confirm(`¿Generar ${toCreate.length} pago(s) pendiente(s) para este mes?`)) return;
+      try {
+        const lastDay = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+        for (const c of toCreate) {
+          const startDay = Number(c.startDate.split('-')[2]);
+          const day = Math.min(startDay, lastDay);
+          const dueDate = period + '-' + String(day).padStart(2,'0');
+          await dbPut('payments', {
+            contractId: c.id, amount: Number(c.monthlyRent)||0, dueDate,
+            status: 'Pendiente', method: 'Efectivo', paymentDate: '', notes: '',
+            period, createdAt: new Date().toISOString()
+          });
+        }
+        await this.loadAll();
+        this.computeDash();
+        this.showToast(`✓ ${toCreate.length} pago(s) generado(s)`, 'ok');
+      } catch(e) {
+        this.showToast('Error al generar: '+e.message, 'err');
       }
     },
     async quickMarkPaid(p) {
